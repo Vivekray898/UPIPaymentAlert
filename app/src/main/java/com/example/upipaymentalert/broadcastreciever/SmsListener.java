@@ -8,6 +8,8 @@ import android.provider.Telephony;
 import android.speech.tts.TextToSpeech;
 import android.telephony.SmsMessage;
 
+import com.example.upipaymentalert.PaymentEvent;
+import com.example.upipaymentalert.PaymentHistoryStore;
 import com.example.upipaymentalert.smsparser.SmsParser;
 
 import java.util.Locale;
@@ -60,6 +62,14 @@ public class SmsListener extends BroadcastReceiver {
 
             // Save latest message so UI can pick it up when opened
             prefs.edit().putString("last_sms", textToDisplay).apply();
+
+            // Payment history capture (fire-and-forget; cannot affect the TTS call below)
+            try {
+                PaymentEvent ev = PaymentEvent.capture(
+                        PaymentEvent.Source.SMS, address, messageBody.toString(), textToRead, textToDisplay);
+                PaymentHistoryStore.append(context, ev);
+            } catch (Exception ignored) {
+            }
 
             // Speak via the foreground TTS service (start or deliver intent)
             try {

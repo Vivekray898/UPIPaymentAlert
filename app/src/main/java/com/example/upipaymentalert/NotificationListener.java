@@ -13,6 +13,8 @@ import android.os.Bundle;
 import android.service.notification.NotificationListenerService;
 import android.service.notification.StatusBarNotification;
 
+import com.example.upipaymentalert.PaymentEvent;
+import com.example.upipaymentalert.PaymentHistoryStore;
 import com.example.upipaymentalert.smsparser.SmsParser;
 
 public class NotificationListener extends NotificationListenerService {
@@ -76,7 +78,16 @@ public class NotificationListener extends NotificationListenerService {
         String textToRead = smsParser.getAmountFromMessageBody(messageBody, lang);
         
         // Save latest message
-        prefs.edit().putString("last_sms", "App: " + packageName + "\n\nBody: " + messageBody).apply();
+        String lastSmsDisplay = "App: " + packageName + "\n\nBody: " + messageBody;
+        prefs.edit().putString("last_sms", lastSmsDisplay).apply();
+
+        // Payment history capture (fire-and-forget; cannot affect the TTS call below)
+        try {
+            PaymentEvent ev = PaymentEvent.capture(
+                    PaymentEvent.Source.NOTIFICATION, packageName, messageBody, textToRead, lastSmsDisplay);
+            PaymentHistoryStore.append(getApplicationContext(), ev);
+        } catch (Exception ignored) {
+        }
 
         // Speak via the foreground TTS service
         try {

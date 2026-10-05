@@ -73,6 +73,9 @@ public class MainActivity extends AppCompatActivity {
         Button grantPermissionsBtn = findViewById(R.id.grant_permissions_button);
         grantPermissionsBtn.setOnClickListener(v -> requestAllPermissions());
 
+        Button historyBtn = findViewById(R.id.history_button);
+        historyBtn.setOnClickListener(v -> startActivity(new Intent(this, HistoryActivity.class)));
+
         checkPermissionsStatus();
     }
 
