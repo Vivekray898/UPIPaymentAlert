@@ -11,8 +11,14 @@
     <string name="payment_history_empty">No payments recorded yet.</string>
     <string name="payment_history_open">VIEW PAYMENT HISTORY</string>
     <string name="payment_history_clear_confirm_title">Clear history?</string>
-    <string name="payment_history_clear_confirm_msg">This permanently deletes all recorded payment history. Continue?</string>
+    <string name="payment_history_clear_confirm_msg">This permanently deletes all recorded payment history and clears the latest payment shown on the home screen. Continue?</string>
     <string name="payment_history_cleared">History cleared</string>
     <string name="payment_history_amount_unknown">Unknown amount</string>
     <string name="payment_history_cancelled">Cancelled</string>
+    <string name="payment_history_stat_today">Today</string>
+    <string name="payment_history_stat_week">This week</string>
+    <string name="payment_history_stat_month">This month</string>
+    <string name="payment_history_stat_unknown">(%1$d with unknown amount)</string>
+    <string name="payment_history_day_today">TODAY</string>
+    <string name="payment_history_day_yesterday">YESTERDAY</string>
 </resources>

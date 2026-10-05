@@ -11,17 +11,54 @@ import java.util.regex.Pattern;
 public class SmsParser {
     private static final Pattern AMOUNT_PATTERN = Pattern.compile("(?i)(?:(?:RS|INR|MRP|₹)\\.?\\s*)(\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?)");
 
-    public String getAmountFromMessageBody(String body, String language) {
-        boolean isHindi = "Hindi".equalsIgnoreCase(language);
-        String defaultMsg = isHindi ? "अज्ञात राशि का भुगतान प्राप्त हुआ" : "Received payment of an unknown amount";
+    /**
+     * Structured result of the currency-regex match. This is the single source
+     * of truth for "what amount did this message contain", shared by the spoken
+     * phrase and by the history/totals feature so the two can never disagree.
+     *
+     * found == false whenever the message has no amount OR the parsed amount is
+     * 0/0 — exactly the condition under which getAmountFromMessageBody has
+     * always fallen back to its "unknown amount" wording.
+     */
+    public static final class AmountResult {
+        /** Total in paise, or -1 when there is no usable amount. */
+        public final long paise;
+        /** Captured group 1 with commas stripped; null when the regex did not match. */
+        public final String raw;
+        /** True only when a usable (non-zero) amount was parsed. */
+        public final boolean found;
+        /** Integer-part string as spoken, e.g. "1250". Empty when not found. */
+        public final String rupees;
+        /** Parsed integer part (as the original code computed it). */
+        public final int rupeesValue;
+        /** Parsed paise part (as the original code computed it). */
+        public final int paisaValue;
 
+        AmountResult(long paise, String raw, boolean found,
+                     String rupees, int rupeesValue, int paisaValue) {
+            this.paise = paise;
+            this.raw = raw;
+            this.found = found;
+            this.rupees = rupees;
+            this.rupeesValue = rupeesValue;
+            this.paisaValue = paisaValue;
+        }
+    }
+
+    /**
+     * Extract the structured amount. Mirrors, step for step, what
+     * getAmountFromMessageBody used to do inline: same regex, same first-match
+     * semantics, same Integer.parseInt (deliberately int, not long, so that
+     * overflowing amounts keep degrading to "unknown" exactly as before).
+     */
+    public AmountResult extractAmount(String body) {
         if (body == null || body.isEmpty()) {
-            return defaultMsg;
+            return new AmountResult(-1L, null, false, "", 0, 0);
         }
 
         Matcher matcher = AMOUNT_PATTERN.matcher(body);
         if (!matcher.find()) {
-            return defaultMsg;
+            return new AmountResult(-1L, null, false, "", 0, 0);
         }
 
         String rawAmount = matcher.group(1).replace(",", "");
@@ -37,6 +74,24 @@ public class SmsParser {
         try {
             pVal = Integer.parseInt(paisa);
         } catch (NumberFormatException ignored) {}
+
+        boolean found = !(rVal == 0 && pVal == 0);
+        long totalPaise = found ? ((long) rVal * 100L + (long) pVal) : -1L;
+        return new AmountResult(totalPaise, rawAmount, found, rupees, rVal, pVal);
+    }
+
+    public String getAmountFromMessageBody(String body, String language) {
+        boolean isHindi = "Hindi".equalsIgnoreCase(language);
+        String defaultMsg = isHindi ? "अज्ञात राशि का भुगतान प्राप्त हुआ" : "Received payment of an unknown amount";
+
+        AmountResult amt = extractAmount(body);
+        if (!amt.found) {
+            return defaultMsg;
+        }
+
+        String rupees = amt.rupees;
+        int rVal = amt.rupeesValue;
+        int pVal = amt.paisaValue;
 
         if (isHindi) {
             StringBuilder textToSpeak = new StringBuilder("आपको ");

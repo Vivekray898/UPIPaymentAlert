@@ -408,10 +408,17 @@ public class MainActivity extends AppCompatActivity {
         super.onResume();
         checkPermissionsStatus();
         
+        // Always write the value, including when it is empty: "Clear history" in
+        // HistoryActivity removes last_sms, and only assigning unconditionally
+        // actually blanks the box when we come back from there. Assigning only on
+        // a non-empty value would leave the stale payment on screen until this
+        // activity was recreated.
         String last = prefs.getString("last_sms", "");
-        if (last != null && !last.isEmpty()) {
-            TextView viewSMS = findViewById(R.id.view_sms_tv);
+        TextView viewSMS = findViewById(R.id.view_sms_tv);
+        if (last != null) {
             viewSMS.setText(last);
+        } else {
+            viewSMS.setText("");
         }
     }
 }

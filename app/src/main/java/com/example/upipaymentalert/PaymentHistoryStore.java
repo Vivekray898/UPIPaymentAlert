@@ -10,8 +10,8 @@
 //  * readAll() / clear() are UI-only (HistoryActivity).
 //  * Every public method swallows Exception, logs it, and returns normally.
 //
-// CAP HANDLING: naive synchronous trimming would read+rewrite ~500 lines on
-// the main thread for every payment past the cap. Instead we count entries
+// CAP HANDLING: naive synchronous trimming would read+rewrite ~MAX_ENTRIES
+// lines on the main thread for every payment past the cap. Instead we count entries
 // cheaply via UPI_PREFS["history_entry_count"] and, when over the cap, run
 // compaction on a background thread. The cap is therefore best-effort: if a
 // compaction fails the file simply grows until the next successful attempt.
@@ -43,8 +43,15 @@ public final class PaymentHistoryStore {
     private static final String PREFS = "UPI_PREFS";
     private static final String KEY_COUNT = "history_entry_count";
 
-    /** Hard cap on retained entries (Q1: 500). */
-    public static final int MAX_ENTRIES = 500;
+    /**
+     * Hard cap on retained entries (Q1: 2000).
+     *
+     * Raised from 500 to 2000 for the daily/weekly/monthly reports: a 500-entry
+     * window can be exhausted well inside a single month, which would silently
+     * truncate the monthly total. The raise applies FORWARD ONLY - entries already
+     * rotated out under the old cap are gone and are not recoverable.
+     */
+    public static final int MAX_ENTRIES = 2000;
 
     private static final Object LOCK = new Object();
 
@@ -125,8 +132,17 @@ public final class PaymentHistoryStore {
         return out;
     }
 
+    /** SharedPreferences key holding the "latest payment" snapshot shown on the home screen. */
+    private static final String KEY_LAST_SMS = "last_sms";
+
     /**
-     * Delete the history file. Never throws.
+     * Delete the history file AND reset the home screen's "latest payment" box.
+     * Never throws.
+     *
+     * The two are cleared together so that "Clear history" leaves no visible
+     * trace of any payment anywhere in the app; previously the list was emptied
+     * while {@code last_sms} kept showing the most recent payment, which read as
+     * if the clear had failed.
      */
     public static void clear(Context context) {
         if (context == null) return;
@@ -135,6 +151,10 @@ public final class PaymentHistoryStore {
                 File f = fileFor(context);
                 if (f.exists()) f.delete();
                 writeCount(context, 0);
+                // Remove only this key; the user's language/volume/speed/forwarder
+                // settings live in the same prefs file and must survive a clear.
+                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+                        .edit().remove(KEY_LAST_SMS).apply();
             }
         } catch (Exception e) {
             Log.e(TAG, "PaymentHistoryStore.clear failed (swallowed): " + e.getMessage());

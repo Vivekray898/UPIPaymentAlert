@@ -63,10 +63,15 @@ public class SmsListener extends BroadcastReceiver {
             // Save latest message so UI can pick it up when opened
             prefs.edit().putString("last_sms", textToDisplay).apply();
 
-            // Payment history capture (fire-and-forget; cannot affect the TTS call below)
+            // Payment history capture (fire-and-forget; cannot affect the TTS call below).
+            // The amount comes from SmsParser.extractAmount, the SAME parse that
+            // produced the phrase above, so the stored number and the spoken
+            // phrase can never disagree.
             try {
+                SmsParser.AmountResult ar = smsParser.extractAmount(messageBody.toString());
                 PaymentEvent ev = PaymentEvent.capture(
-                        PaymentEvent.Source.SMS, address, messageBody.toString(), textToRead, textToDisplay);
+                        PaymentEvent.Source.SMS, address, messageBody.toString(),
+                        textToRead, textToDisplay, ar.paise, ar.raw);
                 PaymentHistoryStore.append(context, ev);
             } catch (Exception ignored) {
             }

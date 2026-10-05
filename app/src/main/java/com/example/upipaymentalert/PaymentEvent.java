@@ -6,11 +6,10 @@
 // channels (SMS and NotificationListener) create one of these per accepted
 // payment and hand it to PaymentHistoryStore for durable storage.
 //
-// IMPORTANT (Q4 Option B): SmsParser is intentionally NOT modified. To keep
-// the spoken phrase byte-identical we never re-run the parser; instead we
-// re-run a COPY of SmsParser's AMOUNT_PATTERN here to obtain the numeric
-// amount. This is the one duplicated line of logic in the feature and it can
-// drift from SmsParser if that regex is ever changed. See PaymentHistoryPlan.
+// IMPORTANT (Q4 Option A): the numeric amount is NOT re-derived here. The
+// amount is extracted once by SmsParser.extractAmount(...) and passed in, so
+// the spoken phrase and the stored number provably come from the same parse
+// and can never disagree. This class holds no regex of its own.
 // ============================================================================
 package com.example.upipaymentalert;
 
@@ -18,17 +17,11 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public final class PaymentEvent {
 
     /** Where the event came from. */
     public enum Source { SMS, NOTIFICATION }
-
-    // NOTE: duplicate of SmsParser.AMOUNT_PATTERN. Keep in sync if SmsParser changes.
-    private static final Pattern AMOUNT_PATTERN =
-            Pattern.compile("(?i)(?:(?:RS|INR|MRP|₹)\\.?\\s*)(\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?)");
 
     private final String eventId;
     private final long amountPaise;   // -1 when unknown
@@ -57,31 +50,25 @@ public final class PaymentEvent {
     /**
      * Build an event at capture time.
      *
+     * The amount is supplied by the caller (normally from
+     * SmsParser.extractAmount) so that the phrase that was spoken and the
+     * amount recorded here are derived from one and the same parse.
+     *
      * @param source      originating channel
      * @param sourceId    sender address (SMS) or package name (NOTIFICATION); may be null
      * @param rawBody     full extracted text that was parsed
      * @param phrase      the exact phrase string passed to the TTS service
      * @param displayText the exact string written to UPI_PREFS["last_sms"]
+     * @param amountPaise amount in paise, or -1 when unknown
+     * @param amountRaw   raw captured amount text, or "" when unknown
      */
     public static PaymentEvent capture(Source source, String sourceId, String rawBody,
-                                       String phrase, String displayText) {
-        long paise = -1L;
-        String raw = "";
-        try {
-            if (rawBody != null && !rawBody.isEmpty()) {
-                Matcher m = AMOUNT_PATTERN.matcher(rawBody);
-                if (m.find()) {
-                    raw = m.group(1);
-                    paise = toPaise(raw);
-                }
-            }
-        } catch (Exception ignored) {
-            // amount stays unknown; never let this break capture
-        }
+                                       String phrase, String displayText,
+                                       long amountPaise, String amountRaw) {
         return new PaymentEvent(
                 UUID.randomUUID().toString(),
-                paise,
-                raw,
+                amountPaise,
+                amountRaw == null ? "" : amountRaw,
                 phrase == null ? "" : phrase,
                 source,
                 sourceId == null ? "" : sourceId,
@@ -122,30 +109,6 @@ public final class PaymentEvent {
         o.put("timestampMs", timestampMs);
         o.put("displayText", displayText);
         return o;
-    }
-
-    /**
-     * Convert a raw captured amount ("125.50", "1,250") to paise.
-     * Returns -1 if it cannot be parsed.
-     */
-    private static long toPaise(String raw) {
-        try {
-            String cleaned = raw.replace(",", "");
-            String[] parts = cleaned.split("\\.", 2);
-            long rupees = Long.parseLong(parts[0]);
-            long paise = 0L;
-            if (parts.length > 1 && !parts[1].isEmpty()) {
-                String frac = parts[1];
-                if (frac.length() == 1) {
-                    paise = Long.parseLong(frac) * 10L;
-                } else {
-                    paise = Long.parseLong(frac);
-                }
-            }
-            return rupees * 100L + paise;
-        } catch (Exception e) {
-            return -1L;
-        }
     }
 
     public String getEventId() { return eventId; }
