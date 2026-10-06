@@ -15,6 +15,7 @@ import android.service.notification.StatusBarNotification;
 
 import com.example.upipaymentalert.PaymentEvent;
 import com.example.upipaymentalert.PaymentHistoryStore;
+import com.example.upipaymentalert.remote.RemoteAnnouncer;
 import com.example.upipaymentalert.smsparser.SmsParser;
 
 public class NotificationListener extends NotificationListenerService {
@@ -81,13 +82,15 @@ public class NotificationListener extends NotificationListenerService {
         String lastSmsDisplay = "App: " + packageName + "\n\nBody: " + messageBody;
         prefs.edit().putString("last_sms", lastSmsDisplay).apply();
 
+        PaymentEvent ev = null; // hoisted: the remote layer reuses this SAME eventId
+
         // Payment history capture (fire-and-forget; cannot affect the TTS call below).
         // The amount comes from SmsParser.extractAmount, the SAME parse that
         // produced the phrase above, so the stored number and the spoken
         // phrase can never disagree.
         try {
             SmsParser.AmountResult ar = smsParser.extractAmount(messageBody);
-            PaymentEvent ev = PaymentEvent.capture(
+            ev = PaymentEvent.capture(
                     PaymentEvent.Source.NOTIFICATION, packageName, messageBody,
                     textToRead, lastSmsDisplay, ar.paise, ar.raw);
             PaymentHistoryStore.append(getApplicationContext(), ev);
@@ -103,6 +106,16 @@ public class NotificationListener extends NotificationListenerService {
                 getApplicationContext().startForegroundService(svc);
             } else {
                 getApplicationContext().startService(svc);
+            }
+        } catch (Exception ignored) {
+        }
+
+        // Remote announcement (best-effort). Deliberately placed AFTER the local
+        // TTS dispatch above, with no online check anywhere on the speech path.
+        // RemoteAnnouncer checks the enable flag itself and never throws.
+        try {
+            if (ev != null) {
+                RemoteAnnouncer.onPaymentCaptured(getApplicationContext(), ev);
             }
         } catch (Exception ignored) {
         }

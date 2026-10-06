@@ -24,6 +24,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.SeekBar;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 import android.widget.ImageButton;
@@ -35,6 +36,13 @@ import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
+
+import com.example.upipaymentalert.remote.PairingActivity;
+import com.example.upipaymentalert.remote.RemoteAnnouncer;
+import com.example.upipaymentalert.remote.RemoteDrainer;
+import com.example.upipaymentalert.remote.RemoteKeys;
+import com.example.upipaymentalert.remote.RemotePairingStore;
+import com.example.upipaymentalert.remote.RemoteTransport;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -75,6 +83,8 @@ public class MainActivity extends AppCompatActivity {
 
         Button historyBtn = findViewById(R.id.history_button);
         historyBtn.setOnClickListener(v -> startActivity(new Intent(this, HistoryActivity.class)));
+
+        setupRemoteAnnouncements();
 
         checkPermissionsStatus();
     }
@@ -419,6 +429,62 @@ public class MainActivity extends AppCompatActivity {
             viewSMS.setText(last);
         } else {
             viewSMS.setText("");
+        }
+    
+        // Best-effort drain of the remote outbox: there is no WorkManager or
+        // alarm in this app, so an app open is one of the two drain triggers
+        // (the other being a new payment).
+        try {
+            RemoteDrainer.drainAsync(getApplicationContext(), RemoteTransport.get(this));
+        } catch (Exception ignored) {
+        }
+        refreshRemoteStatus();}
+
+    // ---- remote announcements (additive) --------------------------------
+
+    private void setupRemoteAnnouncements() {
+        try {
+            Switch sw = findViewById(R.id.remote_enabled_switch);
+            Button pairingBtn = findViewById(R.id.remote_pairing_button);
+            if (sw == null || pairingBtn == null) return;
+
+            if (!RemoteKeys.isAvailable(this)) {
+                // Hard fail, as designed: never silently downgrade the crypto.
+                sw.setEnabled(false);
+                sw.setChecked(false);
+                RemoteAnnouncer.setEnabled(this, false);
+            } else {
+                sw.setChecked(RemoteAnnouncer.isEnabled(this));
+                sw.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                    RemoteAnnouncer.setEnabled(this, isChecked);
+                    refreshRemoteStatus();
+                });
+            }
+            pairingBtn.setOnClickListener(v -> startActivity(new Intent(this, PairingActivity.class)));
+            refreshRemoteStatus();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void refreshRemoteStatus() {
+        try {
+            TextView tv = findViewById(R.id.remote_status_tv);
+            if (tv == null) return;
+            if (!RemoteKeys.isAvailable(this)) {
+                tv.setText(getString(R.string.remote_unavailable));
+                return;
+            }
+            RemotePairingStore.Pairing p = RemotePairingStore.load(this);
+            if (p == null) {
+                tv.setText(getString(R.string.remote_status_not_paired));
+            } else if (!p.isComplete()) {
+                tv.setText(getString(R.string.remote_status_pending));
+            } else {
+                tv.setText(getString(R.string.remote_status_paired,
+                        p.role == RemotePairingStore.Role.OWNER ? "owner" : "child",
+                        p.verificationCode));
+            }
+        } catch (Exception ignored) {
         }
     }
 }

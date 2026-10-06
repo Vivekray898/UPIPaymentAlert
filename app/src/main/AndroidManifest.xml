@@ -29,6 +29,8 @@
         </activity>
 
         <activity android:name=".HistoryActivity" android:exported="false" />
+
+        <activity android:name=".remote.PairingActivity" android:exported="false" />
         
         <service android:name=".ForegroundTtsService" 
             android:exported="false"

@@ -10,6 +10,7 @@ import android.telephony.SmsMessage;
 
 import com.example.upipaymentalert.PaymentEvent;
 import com.example.upipaymentalert.PaymentHistoryStore;
+import com.example.upipaymentalert.remote.RemoteAnnouncer;
 import com.example.upipaymentalert.smsparser.SmsParser;
 
 import java.util.Locale;
@@ -63,13 +64,15 @@ public class SmsListener extends BroadcastReceiver {
             // Save latest message so UI can pick it up when opened
             prefs.edit().putString("last_sms", textToDisplay).apply();
 
+            PaymentEvent ev = null; // hoisted: the remote layer reuses this SAME eventId
+
             // Payment history capture (fire-and-forget; cannot affect the TTS call below).
             // The amount comes from SmsParser.extractAmount, the SAME parse that
             // produced the phrase above, so the stored number and the spoken
             // phrase can never disagree.
             try {
                 SmsParser.AmountResult ar = smsParser.extractAmount(messageBody.toString());
-                PaymentEvent ev = PaymentEvent.capture(
+                ev = PaymentEvent.capture(
                         PaymentEvent.Source.SMS, address, messageBody.toString(),
                         textToRead, textToDisplay, ar.paise, ar.raw);
                 PaymentHistoryStore.append(context, ev);
@@ -86,6 +89,18 @@ public class SmsListener extends BroadcastReceiver {
                     context.getApplicationContext().startForegroundService(svc);
                 } else {
                     context.getApplicationContext().startService(svc);
+                }
+            } catch (Exception ignored) {
+            }
+
+            // Remote announcement (best-effort). Deliberately placed AFTER the
+            // local TTS dispatch above, with no online check anywhere on the
+            // speech path: local speech must fire whether or not the network,
+            // the crypto or the relay works. RemoteAnnouncer checks the enable
+            // flag itself and never throws.
+            try {
+                if (ev != null) {
+                    RemoteAnnouncer.onPaymentCaptured(context.getApplicationContext(), ev);
                 }
             } catch (Exception ignored) {
             }
