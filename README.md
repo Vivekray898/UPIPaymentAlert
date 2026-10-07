@@ -62,7 +62,7 @@
 
 UPI Payment Alert is a **native Android utility** designed to act as your personal voice speaker (soundbox) for UPI transactions. It runs as a persistent background service, listens to incoming transactional SMS and notification pushes (from GPay, PhonePe, Paytm, BHIM, etc.), and announces the payment details aloud. 
 
-Unlike commercial soundboxes, it requires **no subscription fees**, **no internet connection**, and **does not share your financial transactions with any servers**.
+Unlike commercial soundboxes, it requires **no subscription fees** and **does not share your financial transactions with any servers**.
 
 ---
 
@@ -74,7 +74,8 @@ Unlike commercial soundboxes, it requires **no subscription fees**, **no interne
 - ⏱️ **Segmented Speech Speed** — Custom slider sets the speed rate of the currency amount independently of other words.
 - 🗣️ **Hindi & English Support** — Features customized voice modules for English and formal Hindi (`"प्राप्त हुए"`).
 - 📤 **SMS Forwarder** — Route incoming alerts via carrier SMS with Target Application and Transaction Type (Credit/Debit) filtering logic.
-- 🔒 **100% Offline Privacy** — Zero cloud servers, no user accounts, and does not request `android.permission.INTERNET`.
+- 🔒 **Offline-by-default privacy** — Zero cloud servers, no user accounts, and no internet permission in the base app. The original on-device privacy model is unchanged; a new optional remote-announcement layer can be turned on separately and only sends encrypted payloads when enabled.
+- 🔗 **Multi-child remote announcements** — One owner device can pair with multiple child devices. The owner creates a 6-digit pairing code, each child registers with it, and the owner can view and remove any paired child from a single management screen.
 
 ---
 
@@ -87,6 +88,36 @@ Unlike commercial soundboxes, it requires **no subscription fees**, **no interne
    - **SMS Permission**: To parse bank payment statements.
    - **Battery Optimization Bypass**: To prevent the OS from killing the background service.
 4. Select your preferred Language, adjust the Volume and Speed sliders, and try the **Test Sound** buttons!
+
+## 🆕 What Changed In This Version
+
+This branch adds a new optional remote-announcement feature on top of the original offline soundbox app.
+
+### New features
+
+- **Optional remote announcements for child devices** — A paired child device can receive encrypted payment announcements pushed from the owner device through a Supabase relay.
+- **Multi-child pairing** — The owner device can pair with more than one child. Each child gets its own pairing record, its own identity, and its own delivery address.
+- **Owner-side paired-child management** — The owner can open a paired-children list and remove any one child without unpairing the others.
+- **Child-side payment history** — A paired child can keep its own received-payment history locally and clear it independently from the owner.
+- **New pairing flow** — Pairing uses a short 6-digit code entered on the owner device, with a Supabase lookup/consume endpoint and FCM token registration on the child side. A legacy long-blob flow is still present as a fallback.
+
+### Privacy changes
+
+- **The base app is still offline by default.** The original payment detection, TTS, and local storage behavior are unchanged, and the app does not gain a hard internet requirement.
+- **Remote mode is opt-in.** Remote announcements are disabled until the user enables them, and the app can still run with no network calls when that feature is off.
+- **The relay does not see payment content.** Payment payloads are encrypted on the owner device before they leave the device. The relay only carries ciphertext and does not store or log payment details.
+- **Pairing key material is not stored server-side.** The Supabase pairing endpoints are single-use / lookup-and-consume for codes, and the session keys stay on the paired devices.
+- **The app now has an internet permission only for the optional remote feature.** The original offline behavior does not depend on it.
+
+### What stayed the same
+
+- Dual SMS and notification listeners
+- 60-second deduplication
+- Independent volume override and segmented speech-speed control
+- Hindi/English announcement support
+- SMS forwarder with app and credit/debit filtering
+- Local-only payment history for the main device
+
 
 ---
 
