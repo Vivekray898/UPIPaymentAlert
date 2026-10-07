@@ -41,6 +41,18 @@ public final class RemoteEnvelope {
 
     public static String build(String kind, String pairId, String eventId,
                               String nonceB64, String ctB64) throws Exception {
+        return build(kind, pairId, eventId, nonceB64, ctB64, "");
+    }
+
+    /**
+     * Build an envelope. When epkB64 is non-empty it carries the sender's
+     * ephemeral P-256 public key (the ECIES header): the receiver derives the
+     * introduction key from it instead of from a shared pairSecret. The field
+     * is plaintext by design — a key offer, not a secret — and parsers that
+     * do not know it ignore it, so the legacy blob flow keeps working.
+     */
+    public static String build(String kind, String pairId, String eventId,
+                              String nonceB64, String ctB64, String epkB64) throws Exception {
         JSONObject o = new JSONObject();
         o.put("v", VERSION);
         o.put("k", kind);
@@ -48,6 +60,9 @@ public final class RemoteEnvelope {
         o.put("eventId", eventId);
         o.put("n", nonceB64);
         o.put("ct", ctB64);
+        if (epkB64 != null && !epkB64.isEmpty()) {
+            o.put("epk", epkB64);
+        }
         return o.toString();
     }
 
@@ -102,10 +117,15 @@ public final class RemoteEnvelope {
      * that only authenticates the owner to the relay. The send token is NOT
      * derived from the session key, so the relay gains no cryptographic power.
      */
-    public static String pairPayload(String ownerPubB64, String sendTokenB64) throws Exception {
+    public static String pairPayload(String ownerPubB64, String sendTokenB64,
+                                    String eventId) throws Exception {
         JSONObject o = new JSONObject();
         o.put("t", KIND_PAIR);
         o.put("v", VERSION);
+        // RemoteIngest cross-checks the inner eventId against the envelope's
+        // eventId before accepting ANY payload (pair or pay), so the
+        // introduction must carry it too.
+        o.put("eventId", eventId);
         o.put("ownerPub", ownerPubB64);
         o.put("sendToken", sendTokenB64);
         return o.toString();

@@ -25,12 +25,12 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.security.KeyStore;
-import java.security.SecureRandom;
 
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
+import java.security.InvalidAlgorithmParameterException;
 
 public final class RemoteKeys {
 
@@ -56,36 +56,65 @@ public final class RemoteKeys {
     private static SecretKey kek() throws Exception {
         KeyStore ks = KeyStore.getInstance(KEYSTORE);
         ks.load(null);
-        if (!ks.containsAlias(KEK_ALIAS)) {
-            KeyGenerator kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE);
-            kg.init(new KeyGenParameterSpec.Builder(KEK_ALIAS,
-                    KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
-                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
-                    .setKeySize(256)
-                    .build());
-            kg.generateKey();
+        boolean existing = ks.containsAlias(KEK_ALIAS);
+        if (!existing) {
+            generateKek();
         }
         return (SecretKey) ks.getKey(KEK_ALIAS, null);
+    }
+
+    private static void generateKek() throws Exception {
+        KeyGenerator kg = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, KEYSTORE);
+        kg.init(new KeyGenParameterSpec.Builder(KEK_ALIAS,
+                KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
+                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
+                .setKeySize(256)
+                .build());
+        kg.generateKey();
+    }
+
+    private static void resetKek() throws Exception {
+        KeyStore ks = KeyStore.getInstance(KEYSTORE);
+        ks.load(null);
+        if (ks.containsAlias(KEK_ALIAS)) {
+            ks.deleteEntry(KEK_ALIAS);
+        }
+        generateKek();
     }
 
     /** Seal bytes under the KEK: returns [iv(12)][ciphertext||tag], or null. */
     public static byte[] wrap(Context context, byte[] plain) {
         try {
-            SecretKey k = kek();
-            if (k == null || plain == null) return null;
-            Cipher c = Cipher.getInstance(TRANSFORM);
-            c.init(Cipher.ENCRYPT_MODE, k);
-            byte[] ct = c.doFinal(plain);
-            byte[] iv = c.getIV();
-            byte[] out = new byte[IV_LEN + ct.length];
-            System.arraycopy(iv, 0, out, 0, IV_LEN);
-            System.arraycopy(ct, 0, out, IV_LEN, ct.length);
-            return out;
+            return wrapOnce(plain);
+        } catch (InvalidAlgorithmParameterException e) {
+            try {
+                Log.w(TAG, "remote: resetting incompatible keystore key ("
+                        + e.getClass().getSimpleName() + ": " + e.getMessage() + ")");
+                resetKek();
+                return wrapOnce(plain);
+            } catch (Exception retry) {
+                Log.w(TAG, "remote: key wrap retry failed ("
+                        + retry.getClass().getName() + ": " + retry.getMessage() + ")");
+                return null;
+            }
         } catch (Exception e) {
             Log.w(TAG, "remote: key wrap failed (" + e.getClass().getName() + ": " + e.getMessage() + ")");
             return null;
         }
+    }
+
+    private static byte[] wrapOnce(byte[] plain) throws Exception {
+        SecretKey k = kek();
+        if (k == null || plain == null) return null;
+        Cipher c = Cipher.getInstance(TRANSFORM);
+        c.init(Cipher.ENCRYPT_MODE, k);
+        byte[] ct = c.doFinal(plain);
+        byte[] iv = c.getIV();
+        byte[] out = new byte[IV_LEN + ct.length];
+        System.arraycopy(iv, 0, out, 0, IV_LEN);
+        System.arraycopy(ct, 0, out, IV_LEN, ct.length);
+        return out;
     }
 
     /**

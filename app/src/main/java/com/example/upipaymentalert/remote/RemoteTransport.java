@@ -34,6 +34,11 @@ public interface RemoteTransport {
 
     /** The single place the active transport is chosen. */
     static RemoteTransport get(Context context) {
+        // Use FCM transport when Supabase is configured, otherwise noop
+        if (FcmTransport.supabaseUrl != null && !FcmTransport.supabaseUrl.isEmpty()
+                && FcmTransport.supabaseAnonKey != null && !FcmTransport.supabaseAnonKey.isEmpty()) {
+            return FcmTransport.INSTANCE;
+        }
         return NoopTransport.INSTANCE;
     }
 }

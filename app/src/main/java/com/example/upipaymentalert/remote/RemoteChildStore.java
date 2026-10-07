@@ -29,6 +29,7 @@ import java.util.List;
 public final class RemoteChildStore {
 
     private static final String TAG = "UPIPaymentAlert";
+    private static final String DIR = "remote_seen";
     private static final String FILE = "remote_seen.jsonl";
     public static final int MAX_IDS = 200;
 
@@ -36,16 +37,27 @@ public final class RemoteChildStore {
 
     private RemoteChildStore() { }
 
+    private static File fileFor(Context context, String pairId) {
+        File dir = new File(context.getFilesDir(), DIR);
+        if (!dir.exists() && !dir.mkdirs()) {
+            // if we cannot create the dir, fall back to a single shared file
+            return new File(context.getFilesDir(), "remote_seen.jsonl");
+        }
+        return new File(dir, pairId.hashCode() + ".jsonl");
+    }
+
     /**
-     * @return true when this eventId has ALREADY been announced, in which case
-     *         the caller must discard the message. A new eventId is recorded
-     *         here (before speech) so a crash mid-utterance cannot double-announce.
+     * @return true when this eventId has ALREADY been announced for this pairing,
+     *         in which case the caller must discard the message. A new eventId is
+     *         recorded here (before speech) so a crash mid-utterance cannot
+     *         double-announce.
      */
-    public static boolean seenBefore(Context context, String eventId) {
-        if (context == null || eventId == null || eventId.isEmpty()) return false;
+    public static boolean seenBefore(Context context, String pairId, String eventId) {
+        if (context == null || pairId == null || pairId.isEmpty()
+                || eventId == null || eventId.isEmpty()) return false;
         try {
             synchronized (LOCK) {
-                File f = new File(context.getFilesDir(), FILE);
+                File f = fileFor(context, pairId);
                 List<String> ids = readIds(f);
                 if (ids.contains(eventId)) return true;
                 ids.add(eventId);
@@ -62,20 +74,30 @@ public final class RemoteChildStore {
         }
     }
 
-    public static int size(Context context) {
+    public static int size(Context context, String pairId) {
         try {
-            return readIds(new File(context.getFilesDir(), FILE)).size();
+            return readIds(fileFor(context, pairId)).size();
         } catch (Exception e) {
             return 0;
         }
     }
 
-    public static void clear(Context context) {
+    public static void clear(Context context, String pairId) {
         try {
-            File f = new File(context.getFilesDir(), FILE);
+            File f = fileFor(context, pairId);
             if (f.exists()) f.delete();
         } catch (Exception e) {
             Log.w(TAG, "remote: child store clear failed (" + e.getClass().getSimpleName() + ")");
+        }
+    }
+
+    /** Clear the shared legacy file when we have no pairId-specific naming. */
+    public static void clearShared(Context context) {
+        try {
+            File f = new File(context.getFilesDir(), "remote_seen.jsonl");
+            if (f.exists()) f.delete();
+        } catch (Exception e) {
+            Log.w(TAG, "remote: child store clearShared failed (" + e.getClass().getSimpleName() + ")");
         }
     }
 

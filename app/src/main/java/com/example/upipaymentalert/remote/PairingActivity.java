@@ -24,6 +24,7 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -33,15 +34,33 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import com.example.upipaymentalert.R;
+import com.google.firebase.messaging.FirebaseMessaging;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.UUID;
 
 public class PairingActivity extends AppCompatActivity {
 
+    private static final String TAG = "UPIPaymentAlert";
+
     private TextView statusTv;
     private TextView codeTv;
     private EditText inputEt;
+
+    // Live status refresh: pairing can complete in the BACKGROUND (the FCM
+    // introduction arrives while this screen is visible), so onResume alone
+    // would leave "Waiting for the owner device…" stale until the user
+    // re-enters the screen. Tick every 2s while resumed; never while paused.
+    private final android.os.Handler refreshHandler =
+            new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable refreshTick = new Runnable() {
+        @Override
+        public void run() {
+            refreshStatus();
+            refreshHandler.postDelayed(this, 2000L);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -86,7 +105,7 @@ public class PairingActivity extends AppCompatActivity {
             @Override
             public void onClick(View v) {
                 RemotePairingStore.clear(PairingActivity.this);
-                RemoteChildStore.clear(PairingActivity.this);
+                RemoteChildStore.clearShared(PairingActivity.this);
                 if (codeTv != null) codeTv.setText("");
                 refreshStatus();
                 toast(getString(R.string.remote_unpaired));
@@ -98,6 +117,13 @@ public class PairingActivity extends AppCompatActivity {
     protected void onResume() {
         super.onResume();
         refreshStatus();
+        refreshHandler.post(refreshTick);
+    }
+
+    @Override
+    protected void onPause() {
+        refreshHandler.removeCallbacks(refreshTick);
+        super.onPause();
     }
 
     // ---- status ----------------------------------------------------------
@@ -123,7 +149,7 @@ public class PairingActivity extends AppCompatActivity {
         }
     }
 
-    // ---- child side ------------------------------------------------------
+    // ---- child side (6-digit code + Supabase) --------------------------
 
     private void startAsChild() {
         try {
@@ -136,6 +162,86 @@ public class PairingActivity extends AppCompatActivity {
                 toast(getString(R.string.remote_unavailable));
                 return;
             }
+
+            // Generate a random 6-digit code
+            String sixDigitCode = String.format(Locale.US, "%06d", new java.util.Random().nextInt(1000000));
+
+            // Check if Supabase is configured; if not, fall back to long-blob flow
+            if (FcmTransport.supabaseUrl == null || FcmTransport.supabaseUrl.isEmpty()) {
+                // Fall back to legacy long-blob flow
+                startAsChildLegacy(id, sixDigitCode);
+                return;
+            }
+
+            // Fetch the FCM token asynchronously (Task.getResult() on an
+            // incomplete task throws), then register OFF the main thread:
+            // network on the UI thread throws NetworkOnMainThreadException.
+            FirebaseMessaging.getInstance().getToken()
+                    .addOnSuccessListener(fcmToken -> registerChildAsync(id, sixDigitCode, fcmToken))
+                    .addOnFailureListener(e -> {
+                        Log.w(TAG, "remote: fcm token fetch failed ("
+                                + e.getClass().getSimpleName()
+                                + (e.getMessage() == null ? "" : ": " + e.getMessage()) + ")");
+                        toast("Registration failed: could not get FCM token");
+                    });
+        } catch (Exception e) {
+            Log.w(TAG, "remote: child start failed ("
+                    + e.getClass().getSimpleName()
+                    + (e.getMessage() == null ? "" : ": " + e.getMessage()) + ")");
+            toast(getString(R.string.remote_code_invalid));
+        }
+    }
+
+    /** Background half of the child flow: register, then show the code. */
+    private void registerChildAsync(final RemoteIdentity id, final String sixDigitCode,
+                                    final String fcmToken) {
+        new Thread(() -> {
+            try {
+                final RemotePairingStore.LookupResult result = RemotePairingStore.registerPairing(
+                        sixDigitCode, id.pubB64(), fcmToken);
+                runOnUiThread(() -> {
+                    if (!result.success) {
+                        Log.w(TAG, "remote: child registration failed (" + result.error + ")");
+                        toast("Registration failed: " + result.error);
+                        return;
+                    }
+
+                    // Store pending pairing locally. pairId MUST be the SERVER's
+                    // pair_id from registration: the owner derives its keys from that
+                    // same string, and RemoteIngest drops any envelope whose pairId
+                    // does not match the one stored here.
+                    byte[] pairSecret = RemoteCrypto.randomBytes(RemoteCrypto.PAIR_SECRET_LEN);
+                    RemotePairingStore.Pairing pending = new RemotePairingStore.Pairing(
+                            result.pairId, RemotePairingStore.Role.CHILD,
+                            "", "", "", fcmToken,
+                            "", RemoteCrypto.b64(pairSecret), RemoteCrypto.b64(pairSecret));
+                    RemotePairingStore.save(PairingActivity.this, pending);
+
+                    // Show the 6-digit code and verification info. Rendered as
+                    // HTML: a raw setText() would show literal <strong> tags —
+                    // and COPY CODE copies whatever is displayed verbatim.
+                    String codeHtml = getString(R.string.remote_pairing_code_title)
+                            + "<br/><br/><b>" + sixDigitCode + "</b><br/><br>"
+                            + getString(R.string.remote_pairing_code_instructions);
+                    codeTv.setText(android.text.Html.fromHtml(
+                            codeHtml, android.text.Html.FROM_HTML_MODE_LEGACY));
+                    codeTv.setTextIsSelectable(true);
+
+                    toast(getString(R.string.remote_child_ready));
+                    refreshStatus();
+                });
+            } catch (Exception e) {
+                Log.w(TAG, "remote: child register failed ("
+                        + e.getClass().getSimpleName()
+                        + (e.getMessage() == null ? "" : ": " + e.getMessage()) + ")");
+                runOnUiThread(() -> toast(getString(R.string.remote_code_invalid)));
+            }
+        }).start();
+    }
+
+    /** Legacy long-blob flow (when Supabase is not configured) */
+    private void startAsChildLegacy(RemoteIdentity id, String sixDigitCode) {
+        try {
             byte[] pairSecret = RemoteCrypto.randomBytes(RemoteCrypto.PAIR_SECRET_LEN);
             byte[] pairId = RemoteCrypto.randomBytes(16);
             String code = PairingCode.encode(id.pub, pairSecret, pairId);
@@ -143,12 +249,10 @@ public class PairingActivity extends AppCompatActivity {
                 toast(getString(R.string.remote_code_invalid));
                 return;
             }
-            // Persist the pending pairing BEFORE showing the code: the child
-            // needs its own secret to open the owner's introduction later.
             RemotePairingStore.Pairing pending = new RemotePairingStore.Pairing(
                     RemoteCrypto.b64(pairId), RemotePairingStore.Role.CHILD,
                     "", "", "", "",
-                    RemoteCrypto.b64(pairSecret), RemoteCrypto.b64(pairSecret));
+                    "", RemoteCrypto.b64(pairSecret), RemoteCrypto.b64(pairSecret));
             RemotePairingStore.save(this, pending);
 
             codeTv.setText(PairingCode.group(code));
@@ -162,15 +266,19 @@ public class PairingActivity extends AppCompatActivity {
     private void copyCode() {
         try {
             CharSequence text = codeTv.getText();
-            if (text == null || text.length() == 0) {
+            String shown = text == null ? "" : String.valueOf(text);
+            // Copy ONLY the 6 digits. The display may carry labels/markup, and
+            // pasting anything but the digits makes the owner's paste invalid.
+            java.util.regex.Matcher m = java.util.regex.Pattern
+                    .compile("\\d{6}").matcher(shown);
+            String code = m.find() ? m.group(0) : "";
+            if (code.isEmpty()) {
                 toast(getString(R.string.remote_code_invalid));
                 return;
             }
             ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             if (cm != null) {
-                // Copy without the display spaces so the paste is unambiguous.
-                cm.setPrimaryClip(ClipData.newPlainText("pairing",
-                        String.valueOf(text).replace(" ", "")));
+                cm.setPrimaryClip(ClipData.newPlainText("pairing", code));
             }
             toast(getString(R.string.remote_copied));
         } catch (Exception e) {
@@ -178,7 +286,7 @@ public class PairingActivity extends AppCompatActivity {
         }
     }
 
-    // ---- owner side ------------------------------------------------------
+    // ---- owner side (6-digit code via Supabase) ------------------------
 
     private void startAsOwner() {
         try {
@@ -186,7 +294,114 @@ public class PairingActivity extends AppCompatActivity {
                 toast(getString(R.string.remote_unavailable));
                 return;
             }
-            String pasted = inputEt.getText() == null ? "" : inputEt.getText().toString();
+            String code = inputEt.getText() == null ? "" : inputEt.getText().toString().trim();
+
+            // Check if Supabase is configured; if not, fall back to long-blob flow
+            if (FcmTransport.supabaseUrl == null || FcmTransport.supabaseUrl.isEmpty()) {
+                // Legacy long-blob flow
+                startAsOwnerLegacy(code);
+                return;
+            }
+
+            // 6-digit code flow via Supabase
+            if (!code.matches("^\\d{6}$")) {
+                toast(getString(R.string.remote_code_invalid));
+                return;
+            }
+
+            RemoteIdentity id = RemoteIdentity.loadOrCreate(this);
+            if (id == null) {
+                toast(getString(R.string.remote_unavailable));
+                return;
+            }
+
+            // The lookup (network) AND the rest of the flow run OFF the main
+            // thread: network on the UI thread throws
+            // NetworkOnMainThreadException. Everything resumes on the UI
+            // thread via runOnUiThread.
+            new Thread(() -> {
+                final RemotePairingStore.LookupResult result =
+                        RemotePairingStore.lookupAndConsumePairing(code);
+                runOnUiThread(() -> finishOwnerPairing(id, result));
+            }).start();
+        } catch (Exception e) {
+            Log.w(TAG, "remote: owner start failed ("
+                    + e.getClass().getSimpleName()
+                    + (e.getMessage() == null ? "" : ": " + e.getMessage()) + ")");
+            toast(getString(R.string.remote_code_invalid));
+        }
+    }
+
+    /**
+     * Second half of the owner flow, back on the UI thread after the code was
+     * consumed off-thread. Derives the session key, seals the ECIES
+     * introduction and queues it for the drainer.
+     */
+    private void finishOwnerPairing(RemoteIdentity id, RemotePairingStore.LookupResult result) {
+        try {
+            if (!result.success) {
+                Log.w(TAG, "remote: owner lookup failed (" + result.error + ")");
+                toast("Lookup failed: " + result.error);
+                return;
+            }
+
+            byte[] childPub = RemoteCrypto.unb64(result.childPubB64);
+            java.security.PublicKey childPubObj = RemoteCrypto.decodePublic(childPub);
+            byte[] pairIdBytes = RemoteCrypto.unb64(result.pairId);
+            byte[] kMsg = RemoteCrypto.deriveKey(
+                    RemoteCrypto.ecdh(id.priv, childPubObj),
+                    pairIdBytes, "message");
+
+            // ECIES introduction: sealed to the child's STATIC public key with
+            // a throwaway ephemeral key. The shared pairSecret never leaves the
+            // child (the registry holds no key material) — the child reopens
+            // this with the epk header + its own private key.
+            java.security.KeyPair eph = RemoteCrypto.generateKeyPair();
+            byte[] kPair = RemoteCrypto.deriveKey(
+                    RemoteCrypto.ecdh(eph.getPrivate(), childPubObj),
+                    pairIdBytes, "pairing");
+
+            // The send token authenticates this device to the relay
+            byte[] sendToken = RemoteCrypto.randomBytes(32);
+            String sendTokenB64 = RemoteCrypto.b64(sendToken);
+
+            String pairId = result.pairId;
+
+            String introEventId = UUID.randomUUID().toString();
+            String inner = RemoteEnvelope.pairPayload(id.pubB64(), sendTokenB64, introEventId);
+            byte[] nonce = RemoteCrypto.randomBytes(RemoteCrypto.NONCE_LEN);
+            byte[] ct = RemoteCrypto.seal(kPair, nonce,
+                    RemoteEnvelope.aad(RemoteEnvelope.KIND_PAIR, pairId, introEventId),
+                    inner.getBytes(StandardCharsets.UTF_8));
+            String intro = RemoteEnvelope.build(RemoteEnvelope.KIND_PAIR, pairId,
+                    introEventId, RemoteCrypto.b64(nonce), RemoteCrypto.b64(ct),
+                    RemoteCrypto.b64(RemoteCrypto.encodePublic(eph.getPublic())));
+
+            RemotePairingStore.Pairing done = new RemotePairingStore.Pairing(
+                    pairId, RemotePairingStore.Role.OWNER,
+                    result.childPubB64, RemoteCrypto.b64(kMsg), sendTokenB64,
+                    result.childFcmToken,
+                    PairingCode.fingerprint(kMsg), "", "");
+            if (!RemotePairingStore.save(this, done)) {
+                toast(getString(R.string.remote_unavailable));
+                return;
+            }
+            RemoteOutbox.append(this, pairId, intro);
+            RemoteDrainer.drainAsync(this, RemoteTransport.get(this));
+            inputEt.setText("");
+            toast(getString(R.string.remote_owner_done));
+            refreshStatus();
+        } catch (Exception e) {
+            Log.w(TAG, "remote: owner finish failed ("
+                    + e.getClass().getSimpleName()
+                    + (e.getMessage() == null ? "" : ": " + e.getMessage()) + ")");
+            toast(getString(R.string.remote_code_invalid));
+        }
+    }
+
+    /** Legacy long-blob owner flow (when Supabase is not configured) */
+    private void startAsOwnerLegacy(String pasted) {
+        try {
             PairingCode.Blob blob = PairingCode.decode(pasted);
             if (blob == null) {
                 toast(getString(R.string.remote_code_invalid));
@@ -200,19 +415,16 @@ public class PairingActivity extends AppCompatActivity {
             String pairId = RemoteCrypto.b64(blob.pairId);
             byte[] pairIdBytes = blob.pairId;
 
-            // K_msg for payments; K_pair only to protect the one-shot introduction.
             byte[] kMsg = RemoteCrypto.deriveKey(
                     RemoteCrypto.ecdh(id.priv, RemoteCrypto.decodePublic(blob.pub)),
                     pairIdBytes, "message");
             byte[] kPair = RemoteCrypto.deriveKey(blob.pairSecret, pairIdBytes, "pairing");
 
-            // The send token authenticates this device to the relay. It is NOT
-            // derived from the session key, so the relay still cannot decrypt.
             byte[] sendToken = RemoteCrypto.randomBytes(32);
             String sendTokenB64 = RemoteCrypto.b64(sendToken);
 
-            String inner = RemoteEnvelope.pairPayload(id.pubB64(), sendTokenB64);
             String introEventId = UUID.randomUUID().toString();
+            String inner = RemoteEnvelope.pairPayload(id.pubB64(), sendTokenB64, introEventId);
             byte[] nonce = RemoteCrypto.randomBytes(RemoteCrypto.NONCE_LEN);
             byte[] ct = RemoteCrypto.seal(kPair, nonce,
                     RemoteEnvelope.aad(RemoteEnvelope.KIND_PAIR, pairId, introEventId),
@@ -223,6 +435,7 @@ public class PairingActivity extends AppCompatActivity {
             RemotePairingStore.Pairing done = new RemotePairingStore.Pairing(
                     pairId, RemotePairingStore.Role.OWNER,
                     RemoteCrypto.b64(blob.pub), RemoteCrypto.b64(kMsg), sendTokenB64,
+                    "",
                     PairingCode.fingerprint(kMsg), "", RemoteCrypto.b64(blob.pairSecret));
             if (!RemotePairingStore.save(this, done)) {
                 toast(getString(R.string.remote_unavailable));
@@ -251,7 +464,8 @@ public class PairingActivity extends AppCompatActivity {
         try {
             String pasted = inputEt.getText() == null ? "" : inputEt.getText().toString().trim();
             if (pasted.isEmpty()) {
-                toast(getString(R.string.remote_code_invalid));
+                // Distinct message: an empty box is not an invalid code.
+                toast(getString(R.string.remote_feed_empty));
                 return;
             }
             boolean ok = RemoteIngest.handle(getApplicationContext(), pasted);

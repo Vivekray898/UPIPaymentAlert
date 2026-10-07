@@ -45,4 +45,39 @@
     <string name="remote_feed_button">PROCESS RECEIVED MESSAGE</string>
     <string name="remote_feed_ok">Message accepted</string>
     <string name="remote_feed_rejected">Message rejected</string>
+
+    <!-- Child history screen -->
+    <string name="remote_payment_history_title">Payment History</string>
+    <string name="remote_payment_history_clear">Clear</string>
+    <string name="remote_payment_history_empty">No remote payments yet</string>
+    <string name="remote_payment_history_day_today">TODAY</string>
+    <string name="remote_payment_history_day_yesterday">YESTERDAY</string>
+    <string name="remote_payment_history_stat_today">Today</string>
+    <string name="remote_payment_history_stat_week">This week</string>
+    <string name="remote_payment_history_stat_month">This month</string>
+    <string name="remote_payment_history_stat_unknown">%d payment(s) with unknown amount</string>
+    <string name="remote_payment_history_amount_unknown">Unknown amount</string>
+    <string name="remote_payment_history_clear_confirm_title">Clear history?</string>
+    <string name="remote_payment_history_clear_confirm_msg">This will delete all remote payment history on this device.</string>
+    <string name="remote_payment_history_cleared">History cleared</string>
+    <string name="remote_payment_history_cancelled">Cancelled</string>
+
+    <string name="remote_pairing_code_title">Your Pairing Code</string>
+    <string name="remote_feed_empty">Paste the received message into the box first</string>
+    <string name="remote_pairing_code_instructions">Share this 6-digit code with the owner device. They will enter it to pair with you.</string>
+    <string name="remote_pairing_code_hint">Enter 6-digit pairing code</string>
+    <string name="remote_pairing_registering">Registering with server…</string>
+    <string name="remote_pairing_lookup">Looking up code…</string>
+    <string name="remote_pairing_code_invalid_format">Please enter a valid 6-digit code</string>
+    <string name="remote_pairing_registered">Pairing code registered! Share it with the owner.</string>
+    <string name="remote_pairing_lookup_failed">Failed to look up pairing code</string>
+
+    <!-- Owner-side multi-child pairing list -->
+    <string name="remote_manage_children">Manage paired children</string>
+    <string name="remote_no_children">No paired children</string>
+    <string name="remote_child_row_format">%1$s · code %2$s</string>
+    <string name="remote_child_remove">Remove paired child</string>
+    <string name="remote_child_remove_confirm_title">Remove this child?</string>
+    <string name="remote_child_remove_confirm_msg">This child will stop receiving remote payment announcements. This does not delete the child device\'s own history.</string>
+    <string name="remote_child_removed">Child removed</string>
 </resources>

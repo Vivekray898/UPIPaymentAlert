@@ -29,6 +29,8 @@ import org.json.JSONObject;
 
 import java.nio.charset.StandardCharsets;
 import java.security.PublicKey;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class RemoteIngest {
 
@@ -52,13 +54,22 @@ public final class RemoteIngest {
                 return false;
             }
             String kind = env.optString("k", "");
-            String pairId = env.optString("pairId", "");
+            String envPairId = env.optString("pairId", "");
             String eventId = env.optString("eventId", "");
             String nonceB64 = env.optString("n", "");
             String ctB64 = env.optString("ct", "");
 
-            RemotePairingStore.Pairing p = RemotePairingStore.load(context);
-            if (p == null || !pairId.equals(p.pairId)) {
+            List<RemotePairingStore.Pairing> pairings = RemotePairingStore.loadAll(context);
+            RemotePairingStore.Pairing p = null;
+            if (pairings != null) {
+                for (RemotePairingStore.Pairing candidate : pairings) {
+                    if (candidate != null && envPairId.equals(candidate.pairId)) {
+                        p = candidate;
+                        break;
+                    }
+                }
+            }
+            if (p == null) {
                 // Deliberately does not log the pairId value.
                 Log.w(TAG, "remote: envelope for an unknown pairing dropped");
                 return false;
@@ -66,12 +77,33 @@ public final class RemoteIngest {
 
             byte[] key;
             if (RemoteEnvelope.KIND_PAIR.equals(kind)) {
-                if (p.pendingSecretB64.isEmpty()) {
-                    Log.w(TAG, "remote: unexpected introduction dropped");
-                    return false;
+                String epkB64 = env.optString("epk", "");
+                if (!epkB64.isEmpty()) {
+                    // ECIES header: the introduction was sealed to our static
+                    // public key with the sender's ephemeral key. Recompute
+                    // the pairing key from epk — no shared pairSecret needed,
+                    // so the registry never held key material.
+                    RemoteIdentity id = RemoteIdentity.load(context);
+                    if (id == null) {
+                        Log.w(TAG, "remote: no local identity, cannot open introduction");
+                        return false;
+                    }
+                    PublicKey eph = RemoteCrypto.decodePublic(RemoteCrypto.unb64(epkB64));
+                    if (!RemoteCrypto.isValidP256PublicKey(eph)) {
+                        Log.w(TAG, "remote: introduction carried an invalid key, dropped");
+                        return false;
+                    }
+                    key = RemoteCrypto.deriveKey(RemoteCrypto.ecdh(id.priv, eph),
+                            RemoteCrypto.unb64(envPairId), "pairing");
+                } else {
+                    // Legacy long-blob flow: sealed with the shared pairSecret.
+                    if (p.pendingSecretB64.isEmpty()) {
+                        Log.w(TAG, "remote: unexpected introduction dropped");
+                        return false;
+                    }
+                    key = RemoteCrypto.deriveKey(RemoteCrypto.unb64(p.pendingSecretB64),
+                            RemoteCrypto.unb64(envPairId), "pairing");
                 }
-                key = RemoteCrypto.deriveKey(RemoteCrypto.unb64(p.pendingSecretB64),
-                        RemoteCrypto.unb64(pairId), "pairing");
             } else if (RemoteEnvelope.KIND_PAY.equals(kind)) {
                 if (!p.isComplete()) {
                     Log.w(TAG, "remote: payment before pairing completed, dropped");
@@ -86,7 +118,7 @@ public final class RemoteIngest {
             byte[] plain;
             try {
                 plain = RemoteCrypto.open(key, RemoteCrypto.unb64(nonceB64),
-                        RemoteEnvelope.aad(kind, pairId, eventId), RemoteCrypto.unb64(ctB64));
+                        RemoteEnvelope.aad(kind, envPairId, eventId), RemoteCrypto.unb64(ctB64));
             } catch (Exception authFail) {
                 // Forged, tampered, relabelled or sealed with another pairing's
                 // key. This is the one place a hostile relay gets stopped.
@@ -107,7 +139,7 @@ public final class RemoteIngest {
             if (RemoteEnvelope.KIND_PAIR.equals(kind)) {
                 return completePairing(context, p, inner);
             }
-            return announce(context, inner, eventId);
+            return announce(context, inner, eventId, envPairId);
         } catch (Exception e) {
             Log.w(TAG, "remote: ingest failed (" + e.getClass().getSimpleName() + ")");
             return false;
@@ -137,11 +169,25 @@ public final class RemoteIngest {
             byte[] secret = RemoteCrypto.ecdh(id.priv, ownerPub);
             byte[] kMsg = RemoteCrypto.deriveKey(secret, RemoteCrypto.unb64(p.pairId), "message");
 
+            // child never stores a delivery address for itself
             RemotePairingStore.Pairing done = new RemotePairingStore.Pairing(
                     p.pairId, RemotePairingStore.Role.CHILD, ownerPubB64,
-                    RemoteCrypto.b64(kMsg), sendToken, PairingCode.fingerprint(kMsg),
-                    "", p.pairSecretB64);
-            boolean ok = RemotePairingStore.save(context, done);
+                    RemoteCrypto.b64(kMsg), sendToken, "",
+                    PairingCode.fingerprint(kMsg), "", p.pairSecretB64);
+            List<RemotePairingStore.Pairing> current = RemotePairingStore.loadAll(context);
+            if (current == null) current = new ArrayList<>();
+            boolean replaced = false;
+            List<RemotePairingStore.Pairing> updated = new ArrayList<>();
+            for (RemotePairingStore.Pairing existing : current) {
+                if (existing != null && existing.pairId.equals(p.pairId)) {
+                    updated.add(done);
+                    replaced = true;
+                } else if (existing != null) {
+                    updated.add(existing);
+                }
+            }
+            if (!replaced) updated.add(done);
+            boolean ok = RemotePairingStore.saveAll(context, updated);
             Log.d(TAG, "remote: pairing completed vcode=" + done.verificationCode);
             return ok;
         } catch (Exception e) {
@@ -151,7 +197,7 @@ public final class RemoteIngest {
     }
 
     /** Validate, dedupe, speak. Returns true only when speech was dispatched. */
-    private static boolean announce(Context context, JSONObject inner, String eventId) {
+    private static boolean announce(Context context, JSONObject inner, String eventId, String pairId) {
         long amountPaise = inner.optLong("amountPaise", -1L);
         String currency = inner.optString("currency", "");
         long ts = inner.optLong("timestampMs", 0L);
@@ -165,7 +211,7 @@ public final class RemoteIngest {
             Log.w(TAG, "remote: implausible timestamp dropped eventId=" + eventId);
             return false;
         }
-        if (RemoteChildStore.seenBefore(context, eventId)) {
+        if (RemoteChildStore.seenBefore(context, pairId, eventId)) {
             Log.d(TAG, "remote: duplicate suppressed eventId=" + eventId);
             return false;
         }
@@ -187,6 +233,14 @@ public final class RemoteIngest {
             Log.w(TAG, "remote: could not dispatch speech eventId=" + eventId);
             return false;
         }
+        // Persist child-side payment history (audit trail + UI) before speech.
+        // A write failure is swallowed and must never block the TTS dispatch below.
+        try {
+            RemotePaymentHistoryStore.append(context,
+                    RemotePaymentEvent.capture(amountPaise, "", phrase, "remote", "", ""));
+        } catch (Exception ignored) {
+        }
+
         // eventId only. Never the amount, never the phrase.
         Log.d(TAG, "remote: announced eventId=" + eventId);
         return true;

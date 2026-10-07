@@ -37,7 +37,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
+import com.example.upipaymentalert.remote.FcmTokenRegistrar;
+import com.example.upipaymentalert.remote.FcmTransport;
 import com.example.upipaymentalert.remote.PairingActivity;
+import com.example.upipaymentalert.remote.RemoteChildrenActivity;
+import com.example.upipaymentalert.remote.RemoteHistoryActivity;
 import com.example.upipaymentalert.remote.RemoteAnnouncer;
 import com.example.upipaymentalert.remote.RemoteDrainer;
 import com.example.upipaymentalert.remote.RemoteKeys;
@@ -85,6 +89,9 @@ public class MainActivity extends AppCompatActivity {
         historyBtn.setOnClickListener(v -> startActivity(new Intent(this, HistoryActivity.class)));
 
         setupRemoteAnnouncements();
+
+        // Wire Supabase credentials (public anon key - safe to embed)
+        wireSupabaseCredentials();
 
         checkPermissionsStatus();
     }
@@ -438,10 +445,19 @@ public class MainActivity extends AppCompatActivity {
             RemoteDrainer.drainAsync(getApplicationContext(), RemoteTransport.get(this));
         } catch (Exception ignored) {
         }
-        refreshRemoteStatus();}
+        refreshRemoteStatus();}    // ---- Supabase credentials (public, safe to embed) -------------------
+    private void wireSupabaseCredentials() {
+        try {
+            // Supabase project: aqwstxagvicucgfssnac.supabase.co
+            FcmTransport.supabaseUrl = "https://aqwstxagvicucgfssnac.supabase.co";
+            FcmTransport.supabaseAnonKey = "sb_publishable_kzPeQp5B24ovMudGImW3Fw_DbQ3a4sE";
+            FcmTokenRegistrar.supabaseUrl = "https://aqwstxagvicucgfssnac.supabase.co";
+            FcmTokenRegistrar.supabaseAnonKey = "sb_publishable_kzPeQp5B24ovMudGImW3Fw_DbQ3a4sE";
+        } catch (Exception ignored) {
+        }
+    }
 
     // ---- remote announcements (additive) --------------------------------
-
     private void setupRemoteAnnouncements() {
         try {
             Switch sw = findViewById(R.id.remote_enabled_switch);
@@ -460,7 +476,14 @@ public class MainActivity extends AppCompatActivity {
                     refreshRemoteStatus();
                 });
             }
-            pairingBtn.setOnClickListener(v -> startActivity(new Intent(this, PairingActivity.class)));
+            pairingBtn.setOnClickListener(v -> {
+                if (RemotePairingStore.load(this) != null
+                        && RemotePairingStore.load(this).role == RemotePairingStore.Role.OWNER) {
+                    startActivity(new Intent(this, RemoteChildrenActivity.class));
+                } else {
+                    startActivity(new Intent(this, PairingActivity.class));
+                }
+            });
             refreshRemoteStatus();
         } catch (Exception ignored) {
         }

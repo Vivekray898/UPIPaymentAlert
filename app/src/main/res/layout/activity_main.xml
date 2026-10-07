@@ -360,10 +360,8 @@
             android:textColor="?attr/colorPrimary"
             android:textSize="12sp"
             android:textStyle="bold"
-            app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintTop_toBottomOf="@+id/remote_pairing_button" />
+            app:layout_constraintStart_toStartOf="parent"            app:layout_constraintTop_toBottomOf="@+id/remote_pairing_button" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 </ScrollView>

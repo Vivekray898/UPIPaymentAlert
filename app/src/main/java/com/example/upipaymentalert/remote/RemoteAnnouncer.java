@@ -22,6 +22,8 @@ import android.util.Log;
 import com.example.upipaymentalert.PaymentEvent;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 public final class RemoteAnnouncer {
 
@@ -61,28 +63,36 @@ public final class RemoteAnnouncer {
         try {
             if (!isEnabled(context)) return;
 
-            RemotePairingStore.Pairing p = RemotePairingStore.load(context);
-            // Only a complete OWNER pairing sends. A child device never relays.
-            if (p == null || !p.isComplete() || p.role != RemotePairingStore.Role.OWNER) return;
-
-            byte[] kMsg = RemoteCrypto.unb64(p.kMsgB64);
-            if (kMsg == null || kMsg.length != RemoteCrypto.KEY_LEN) return;
+            List<RemotePairingStore.Pairing> pairings = RemotePairingStore.loadAll(context);
+            // Only complete OWNER pairings send. A child device never relays.
+            if (pairings == null || pairings.isEmpty()) return;
+            List<RemotePairingStore.Pairing> owners = new ArrayList<>();
+            for (RemotePairingStore.Pairing p : pairings) {
+                if (p != null && p.isComplete() && p.role == RemotePairingStore.Role.OWNER) {
+                    owners.add(p);
+                }
+            }
+            if (owners.isEmpty()) return;
 
             String payload = RemoteEnvelope.paymentPayload(event, CURRENCY);
-            byte[] nonce = RemoteCrypto.randomBytes(RemoteCrypto.NONCE_LEN);
-            byte[] ct = RemoteCrypto.seal(kMsg, nonce,
-                    RemoteEnvelope.aad(RemoteEnvelope.KIND_PAY, p.pairId, event.getEventId()),
-                    payload.getBytes(StandardCharsets.UTF_8));
+            for (RemotePairingStore.Pairing child : owners) {
+                byte[] kMsg = RemoteCrypto.unb64(child.kMsgB64);
+                if (kMsg == null || kMsg.length != RemoteCrypto.KEY_LEN) continue;
 
-            String envelope = RemoteEnvelope.build(RemoteEnvelope.KIND_PAY, p.pairId,
-                    event.getEventId(), RemoteCrypto.b64(nonce), RemoteCrypto.b64(ct));
+                byte[] nonce = RemoteCrypto.randomBytes(RemoteCrypto.NONCE_LEN);
+                byte[] ct = RemoteCrypto.seal(kMsg, nonce,
+                        RemoteEnvelope.aad(RemoteEnvelope.KIND_PAY, child.pairId, event.getEventId()),
+                        payload.getBytes(StandardCharsets.UTF_8));
 
-            if (envelope.length() > RemoteEnvelope.MAX_CHARS) {
-                Log.w(TAG, "remote: envelope over size cap, dropped eventId=" + event.getEventId());
-                return;
+                String envelope = RemoteEnvelope.build(RemoteEnvelope.KIND_PAY, child.pairId,
+                        event.getEventId(), RemoteCrypto.b64(nonce), RemoteCrypto.b64(ct));
+
+                if (envelope.length() > RemoteEnvelope.MAX_CHARS) {
+                    Log.w(TAG, "remote: envelope over size cap, dropped eventId=" + event.getEventId());
+                    continue;
+                }
+                RemoteOutbox.append(context, child.pairId, envelope);
             }
-
-            RemoteOutbox.append(context, p.pairId, envelope);
             RemoteDrainer.drainAsync(context, RemoteTransport.get(context));
         } catch (Exception e) {
             // Invariant 9: a remote failure must be invisible to the listener.
