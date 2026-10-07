@@ -79,20 +79,6 @@
             android:layout_marginTop="8dp"
             android:text="@string/remote_as_owner" />
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="28dp"
-            android:text="@string/remote_feed_explain"
-            android:textSize="13sp" />
-
-        <Button
-            android:id="@+id/pairing_feed_button"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="@string/remote_feed_button" />
-
         <Button
             android:id="@+id/pairing_unpair_button"
             android:layout_width="match_parent"

@@ -33,7 +33,8 @@
     <string name="remote_copy">COPY CODE</string>
     <string name="remote_copied">Pairing code copied</string>
     <string name="remote_code_invalid">That pairing code is not valid.</string>
-    <string name="remote_child_ready">Share this code with the owner device.</string>
+    <string name="remote_child_ready">Pairing code generated. Compare the verification code below with the owner device before sharing it.</string>
+    <string name="remote_pairing_generating">Generating pairing code…</string>
     <string name="remote_owner_done">Paired. Compare the verification code with the child device.</string>
     <string name="remote_unpair">UNPAIR</string>
     <string name="remote_unpaired">Unpaired</string>
@@ -41,11 +42,6 @@
     <string name="remote_owner_explain">On the OWNER device, paste the child device\'s pairing code here. The payment content is encrypted on this device before it ever leaves, so the relay only ever carries ciphertext.</string>
     <string name="remote_owner_hint">Paste the child device\'s pairing code</string>
     <string name="remote_as_owner">PAIR THIS DEVICE AS OWNER</string>
-    <string name="remote_feed_explain">No relay is configured yet (phase 2), so a received message can be processed manually here. Anything that does not authenticate with this device\'s pairing key is discarded exactly as it would be from a push.</string>
-    <string name="remote_feed_button">PROCESS RECEIVED MESSAGE</string>
-    <string name="remote_feed_ok">Message accepted</string>
-    <string name="remote_feed_rejected">Message rejected</string>
-
     <!-- Child history screen -->
     <string name="remote_payment_history_title">Payment History</string>
     <string name="remote_payment_history_clear">Clear</string>
@@ -63,7 +59,7 @@
     <string name="remote_payment_history_cancelled">Cancelled</string>
 
     <string name="remote_pairing_code_title">Your Pairing Code</string>
-    <string name="remote_feed_empty">Paste the received message into the box first</string>
+
     <string name="remote_pairing_code_instructions">Share this 6-digit code with the owner device. They will enter it to pair with you.</string>
     <string name="remote_pairing_code_hint">Enter 6-digit pairing code</string>
     <string name="remote_pairing_registering">Registering with server…</string>
@@ -72,7 +68,7 @@
     <string name="remote_pairing_registered">Pairing code registered! Share it with the owner.</string>
     <string name="remote_pairing_lookup_failed">Failed to look up pairing code</string>
 
-    <!-- Owner-side multi-child pairing list -->
+    <!-- Child history strings -->
     <string name="remote_manage_children">Manage paired children</string>
     <string name="remote_no_children">No paired children</string>
     <string name="remote_child_row_format">%1$s · code %2$s</string>

@@ -1,0 +1,206 @@
+// ============================================================================
+// SMS Parser Component — UPI Payment Alert
+// Scans transaction alerts for currency notations (₹, RS, INR, MRP) via regex.
+// Generates grammatically natural bilingual voice announcements (Hindi/English).
+// ============================================================================
+package com.vivekray898.upipaymentalert.smsparser;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+public class SmsParser {
+    private static final Pattern AMOUNT_PATTERN = Pattern.compile("(?i)(?:(?:RS|INR|MRP|₹)\\.?\\s*)(\\d+(?:,\\d{3})*(?:\\.\\d{1,2})?)");
+
+    /**
+     * Structured result of the currency-regex match. This is the single source
+     * of truth for "what amount did this message contain", shared by the spoken
+     * phrase and by the history/totals feature so the two can never disagree.
+     *
+     * found == false whenever the message has no amount OR the parsed amount is
+     * 0/0 — exactly the condition under which getAmountFromMessageBody has
+     * always fallen back to its "unknown amount" wording.
+     */
+    public static final class AmountResult {
+        /** Total in paise, or -1 when there is no usable amount. */
+        public final long paise;
+        /** Captured group 1 with commas stripped; null when the regex did not match. */
+        public final String raw;
+        /** True only when a usable (non-zero) amount was parsed. */
+        public final boolean found;
+        /** Integer-part string as spoken, e.g. "1250". Empty when not found. */
+        public final String rupees;
+        /** Parsed integer part (as the original code computed it). */
+        public final int rupeesValue;
+        /** Parsed paise part (as the original code computed it). */
+        public final int paisaValue;
+
+        AmountResult(long paise, String raw, boolean found,
+                     String rupees, int rupeesValue, int paisaValue) {
+            this.paise = paise;
+            this.raw = raw;
+            this.found = found;
+            this.rupees = rupees;
+            this.rupeesValue = rupeesValue;
+            this.paisaValue = paisaValue;
+        }
+    }
+
+    /**
+     * Extract the structured amount. Mirrors, step for step, what
+     * getAmountFromMessageBody used to do inline: same regex, same first-match
+     * semantics, same Integer.parseInt (deliberately int, not long, so that
+     * overflowing amounts keep degrading to "unknown" exactly as before).
+     */
+    public AmountResult extractAmount(String body) {
+        if (body == null || body.isEmpty()) {
+            return new AmountResult(-1L, null, false, "", 0, 0);
+        }
+
+        Matcher matcher = AMOUNT_PATTERN.matcher(body);
+        if (!matcher.find()) {
+            return new AmountResult(-1L, null, false, "", 0, 0);
+        }
+
+        String rawAmount = matcher.group(1).replace(",", "");
+        String[] parts = rawAmount.split("\\.", 2);
+        String rupees = parts[0];
+        String paisa = parts.length > 1 ? parts[1] : "0";
+
+        int rVal = 0;
+        int pVal = 0;
+        try {
+            rVal = Integer.parseInt(rupees);
+        } catch (NumberFormatException ignored) {}
+        try {
+            pVal = Integer.parseInt(paisa);
+        } catch (NumberFormatException ignored) {}
+
+        boolean found = !(rVal == 0 && pVal == 0);
+        long totalPaise = found ? ((long) rVal * 100L + (long) pVal) : -1L;
+        return new AmountResult(totalPaise, rawAmount, found, rupees, rVal, pVal);
+    }
+
+    public String getAmountFromMessageBody(String body, String language) {
+        boolean isHindi = "Hindi".equalsIgnoreCase(language);
+        String defaultMsg = isHindi ? "अज्ञात राशि का भुगतान प्राप्त हुआ" : "Received payment of an unknown amount";
+
+        AmountResult amt = extractAmount(body);
+        if (!amt.found) {
+            return defaultMsg;
+        }
+
+        String rupees = amt.rupees;
+        int rVal = amt.rupeesValue;
+        int pVal = amt.paisaValue;
+
+        if (isHindi) {
+            StringBuilder textToSpeak = new StringBuilder("आपको ");
+            if (rVal != 0) {
+                textToSpeak.append("|").append(rupees).append("| रुपये");
+            }
+            if (pVal != 0) {
+                if (rVal != 0) {
+                    textToSpeak.append(" और ");
+                }
+                textToSpeak.append("|").append(pVal).append("| पैसे");
+            }
+            if (rVal == 0 && pVal == 0) {
+                return defaultMsg;
+            }
+            textToSpeak.append(" प्राप्त हुए");
+            return textToSpeak.toString();
+        } else {
+            StringBuilder textToSpeak = new StringBuilder("Received ");
+            if (rVal != 0) {
+                textToSpeak.append("|").append(rupees).append("| rupees");
+            }
+            if (pVal != 0) {
+                if (rVal != 0) {
+                    textToSpeak.append(" and ");
+                }
+                textToSpeak.append("|").append(pVal).append("| paisa");
+            }
+            if (rVal == 0 && pVal == 0) {
+                return defaultMsg;
+            }
+            return textToSpeak.toString();
+        }
+    }
+
+    public boolean isCreditTransaction(String body) {
+        if (body == null || body.isEmpty()) {
+            return false;
+        }
+
+        String lowerBody = body.toLowerCase();
+
+        // 1. Explicit debit/failure/restricted keywords rejection
+        if (lowerBody.contains("debited") || 
+            lowerBody.contains("debit") || 
+            lowerBody.contains("withdrawn") || 
+            lowerBody.contains("withdrawal") || 
+            lowerBody.contains("failed") || 
+            lowerBody.contains("declined") || 
+            lowerBody.contains("spent") || 
+            lowerBody.contains("deducted") || 
+            lowerBody.contains("charges")) {
+            return false;
+        }
+
+        // Context checks for paid/sent/transfer verbs
+        if (lowerBody.contains("paid") && !lowerBody.contains("paid to you") && !lowerBody.contains("paid you")) {
+            return false;
+        }
+        if (lowerBody.contains("sent") && !lowerBody.contains("sent to you") && !lowerBody.contains("sent you")) {
+            return false;
+        }
+        if (lowerBody.contains("transfer to")) {
+            return false;
+        }
+
+        // 2. Explicit credit/deposit keywords confirmation
+        return lowerBody.contains("credited") || 
+               lowerBody.contains("received") || 
+               lowerBody.contains("deposited") || 
+               lowerBody.contains("deposit") || 
+               lowerBody.contains("added") || 
+               lowerBody.contains("paid to you") || 
+               lowerBody.contains("paid you") || 
+               lowerBody.contains("sent to you") || 
+               lowerBody.contains("sent you") || 
+               lowerBody.contains("transfer from") || 
+               lowerBody.contains("प्राप्त") || 
+               lowerBody.contains("जमा") || 
+               lowerBody.contains("मिले");
+    }
+
+    public boolean isDebitTransaction(String body) {
+        if (body == null || body.isEmpty()) {
+            return false;
+        }
+        
+        String lowerBody = body.toLowerCase();
+        
+        // 1. Explicit credit keywords rejection
+        if (lowerBody.contains("credited") || 
+            lowerBody.contains("received") || 
+            lowerBody.contains("deposited") || 
+            lowerBody.contains("deposit") || 
+            lowerBody.contains("प्राप्त") || 
+            lowerBody.contains("जमा") || 
+            lowerBody.contains("मिले")) {
+            return false;
+        }
+        
+        // 2. Explicit debit keywords confirmation
+        return lowerBody.contains("debited") || 
+               lowerBody.contains("debit") || 
+               lowerBody.contains("withdrawn") || 
+               lowerBody.contains("withdrawal") || 
+               lowerBody.contains("spent") || 
+               lowerBody.contains("deducted") || 
+               lowerBody.contains("charges") ||
+               lowerBody.contains("paid") ||
+               lowerBody.contains("sent");
+    }
+}

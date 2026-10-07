@@ -86,9 +86,9 @@ public static void clear(Context);                   // never throws
 
             // Speak via the foreground TTS service (start or deliver intent)
             try {
-                Intent svc = new Intent(context.getApplicationContext(), com.example.upipaymentalert.ForegroundTtsService.class);
-                svc.setAction(com.example.upipaymentalert.ForegroundTtsService.ACTION_SPEAK);
-                svc.putExtra(com.example.upipaymentalert.ForegroundTtsService.EXTRA_TEXT, textToRead);
+                Intent svc = new Intent(context.getApplicationContext(), com.vivekray898.upipaymentalert.ForegroundTtsService.class);
+                svc.setAction(com.vivekray898.upipaymentalert.ForegroundTtsService.ACTION_SPEAK);
+                svc.putExtra(com.vivekray898.upipaymentalert.ForegroundTtsService.EXTRA_TEXT, textToRead);
                 ...
             } catch (Exception ignored) { }
 ```

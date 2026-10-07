@@ -178,9 +178,9 @@ The privacy model is the whole point of the design. **The relay transports ciphe
 
             // ---- UNCHANGED, BYTE-IDENTICAL: local TTS fires first ----
             try {
-                Intent svc = new Intent(context.getApplicationContext(), com.example.upipaymentalert.ForegroundTtsService.class);
-                svc.setAction(com.example.upipaymentalert.ForegroundTtsService.ACTION_SPEAK);
-                svc.putExtra(com.example.upipaymentalert.ForegroundTtsService.EXTRA_TEXT, textToRead);
+                Intent svc = new Intent(context.getApplicationContext(), com.vivekray898.upipaymentalert.ForegroundTtsService.class);
+                svc.setAction(com.vivekray898.upipaymentalert.ForegroundTtsService.ACTION_SPEAK);
+                svc.putExtra(com.vivekray898.upipaymentalert.ForegroundTtsService.EXTRA_TEXT, textToRead);
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
                     context.getApplicationContext().startForegroundService(svc);
                 } else {

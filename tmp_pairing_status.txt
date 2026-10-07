@@ -1,0 +1,5 @@
+current state:
+- activity_pairing.xml has pairing_as_child_button
+- PairingActivity.startAsChild() is the onClick handler
+- startAsChild triggers FCM getToken() then registerChildAsync on a background thread
+- there is currently no in-flight disable on the child button

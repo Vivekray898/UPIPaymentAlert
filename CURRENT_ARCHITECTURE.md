@@ -26,13 +26,13 @@ This document is a record of **what exists**, not a redesign. Where a section of
 
 ### 1.1 Identity
 
-- **Application ID / package:** `com.example.upipaymentalert`
+- **Application ID / package:** `com.vivekray898.upipaymentalert`
 - **Module name / root project name:** `UPIPaymentAlert` (single module `:app`)
 - **App label:** `UPIPaymentAlert` (`@string/app_name`)
 - **Version:** `versionCode 3`, `versionName "v2.0 Gold Edition"`
 - **Language:** Java only. No Kotlin.
 
-> Note: the two sample test files live under `com.example.paymentalert` (missing the `upi` segment), a stale package name that does not match the production code (`com.example.upipaymentalert`). This is cosmetic and does not affect the APK.
+> Note: the two sample test files live under `com.example.paymentalert` (missing the `upi` segment), a stale package name that does not match the production code (`com.vivekray898.upipaymentalert`). This is cosmetic and does not affect the APK.
 
 ### 1.2 Gradle / toolchain
 
@@ -228,7 +228,7 @@ Command` is delivered on the service main thread; `handleSpeakRequest` and `spea
 ## 4. SMS handling
 
 ### 4.1 Receiver
-- **Class:** `com.example.upipaymentalert.broadcastreciever.SmsListener extends BroadcastReceiver`
+- **Class:** `com.vivekray898.upipaymentalert.broadcastreciever.SmsListener extends BroadcastReceiver`
 - **Manifest:** `<receiver ... android:exported="true">` with intent-filter `android.provider.Telephony.SMS_RECEIVED`, `android:priority="1000"`.
 - **Action handled:** exactly `Telephony.Sms.Intents.SMS_RECEIVED_ACTION` (the code first checks `intent.getAction()` equals that constant; any other action is ignored).
 - **Permissions required:** `RECEIVE_SMS` (to receive), `READ_SMS` (content), `SEND_SMS` (forwarder only).
@@ -247,7 +247,7 @@ Command` is delivered on the service main thread; `handleSpeakRequest` and `spea
 - **Filtering / gating:** `SmsParser.isCreditTransaction(body)`. Only credit-like messages proceed to announcement; everything else returns early. Debit/failed/restricted keywords actively *reject* a message.
 
 ### 4.4 Parser selection & matching
-- There is exactly **one** parser: `com.example.upipaymentalert.smsparser.SmsParser`.
+- There is exactly **one** parser: `com.vivekray898.upipaymentalert.smsparser.SmsParser`.
 - **No bank-specific parsers, no per-sender routing, no per-amount-
 format classification. Whether a message is "supported" is decided entirely by (a) the credit keyword gate and (b) the currency regex finding a number.
 
@@ -274,7 +274,7 @@ format classification. Whether a message is "supported" is decided entirely by (
 
 The app uses a real `NotificationListenerService`.
 
-- **Service class:** `com.example.upipaymentalert.NotificationListener extends NotificationListenerService`.
+- **Service class:** `com.vivekray898.upipaymentalert.NotificationListener extends NotificationListenerService`.
 - **Manifest declaration:**
   ```xml
   <service android:name=".NotificationListener"
@@ -341,7 +341,7 @@ Consequences:
 - **No structured fields** are captured for payer name, transaction/reference ID, timestamp, currency, bank, or source-app identity.
 - The phrase embeds the amount between `|` markers (used by the TTS engine to vary speech rate, see §8).
 - The only enum-like constants in the code are:
-  - `ForegroundTtsService.ACTION_SPEAK = "com.example.upipaymentalert.action.SPEAK"`
+  - `ForegroundTtsService.ACTION_SPEAK = "com.vivekray898.upipaymentalert.action.SPEAK"`
   - `ForegroundTtsService.EXTRA_TEXT = "extra_text"`
   - `NotificationListener`'s inline package substrings (not constants).
   - The language spinner's two literal strings `"English"` / `"Hindi"`.
@@ -356,7 +356,7 @@ Consequences:
 Deduplication is implemented **only** inside the foreground TTS service, and it is **text-based, in-memory, time-windowed**.
 
 ### 7.1 Class & field
-- **Class:** `com.example.upipaymentalert.ForegroundTtsService`
+- **Class:** `com.vivekray898.upipaymentalert.ForegroundTtsService`
 - **Field:** `private final ConcurrentHashMap<String, Long> recentAnnouncements = new ConcurrentHashMap<>();`
 - **Window:** `private static final long DEDUPLICATION_WINDOW_MS = 60000;` (60 seconds)
 
@@ -415,7 +415,7 @@ speak(text);
 
 ## 8. Voice announcement system (TTS)
 
-All TTS lives in `com.example.upipaymentalert.ForegroundTtsService`.
+All TTS lives in `com.vivekray898.upipaymentalert.ForegroundTtsService`.
 
 ### 8.1 Engine & initialization
 - **Engine:** platform `android.speech.tts.TextToSpeech` (one instance, created in `onCreate`).
